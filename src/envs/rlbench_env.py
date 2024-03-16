@@ -10,6 +10,10 @@ import rlbench.tasks as tasks
 from pyrep.const import ObjectType
 from utils import normalize_vector, bcolors
 
+from omegaconf import OmegaConf, DictConfig
+from colosseum.rlbench.extensions.environment import EnvironmentExt
+from colosseum import ASSETS_CONFIGS_FOLDER
+
 class CustomMoveArmThenGripper(MoveArmThenGripper):
     """
     A potential workaround for the default MoveArmThenGripper as we frequently run into zero division errors and failed path.
@@ -48,7 +52,10 @@ class VoxPoserRLBench():
         """
         action_mode = CustomMoveArmThenGripper(arm_action_mode=EndEffectorPoseViaPlanning(),
                                         gripper_action_mode=Discrete())
-        self.rlbench_env = Environment(action_mode)
+
+        cfg = OmegaConf.load(os.path.join(ASSETS_CONFIGS_FOLDER, "default.yaml"))
+
+        self.rlbench_env = EnvironmentExt(action_mode, env_config=cfg.env)
         self.rlbench_env.launch()
         self.task = None
 
