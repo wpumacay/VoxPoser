@@ -13,11 +13,14 @@ from visualizers import ValueMapVisualizer
 
 from rlbench.action_modes.arm_action_modes import EndEffectorPoseViaPlanning
 from rlbench.action_modes.gripper_action_modes import Discrete
-from rlbench.observation_config import ObservationConfig
 
 from colosseum import ASSETS_CONFIGS_FOLDER, TASKS_TTM_FOLDER, TASKS_PY_FOLDER
-from colosseum.rlbench.utils import ObservationConfigExt, name_to_class
+from colosseum.rlbench.utils import ObservationConfigExt, check_and_make, name_to_class
 from colosseum.rlbench.extensions.environment import EnvironmentExt
+
+NUM_EPISODES = 5
+SAVE_EPISODES = False
+HEADLESS = False
 
 
 @hydra.main(
@@ -35,28 +38,34 @@ def main(cfg: DictConfig) -> int:
     )
 
     task_class = name_to_class(cfg.env.task_name, TASKS_PY_FOLDER)
-    assert (
-        task_class is not None
-    ), f"Can't get task-class for task {config.env.task_name}"
+    assert task_class is not None, f"Can't get task-class for task {cfg.env.task_name}"
 
     rlbench_env = EnvironmentExt(
         action_mode=action_mode,
         obs_config=ObservationConfigExt(cfg.data),
-        headless=False,
+        headless=HEADLESS,
         path_task_ttms=TASKS_TTM_FOLDER,
         env_config=cfg.env,
     )
     rlbench_env.launch()
 
     visualizer = ValueMapVisualizer(config["visualizer"])
-    env = VoxPoserRLBench(rlbench_env, visualizer)
+    env = VoxPoserRLBench(
+        env=rlbench_env,
+        visualizer=visualizer,
+        save_episodes=SAVE_EPISODES,
+    )
     lmps, _ = setup_LMP(env, config, debug=False)
     voxposer_ui = lmps["plan_ui"]
     env.load_task(task_class)
 
     assert env.task is not None
 
-    for index in range(0, 5):
+    path_task = os.path.join(cfg.data.save_path, cfg.env.task_name)
+    if SAVE_EPISODES:
+        check_and_make(path_task)
+
+    for index in range(0, NUM_EPISODES):
         descriptions, _ = env.reset()
 
         set_lmp_objects(lmps, env.get_object_names())
@@ -65,10 +74,29 @@ def main(cfg: DictConfig) -> int:
         try:
             voxposer_ui(instruction)
             success, terminate = env.task._task.success()
+            truncated = False
         except:
             success, terminate = False, True
+            truncated = True
 
-        print(f"{index + 1}/5 : success={success}, terminate={terminate}")
+        path_save_episodes = os.path.join(path_task, f"episode{index}")
+
+        if SAVE_EPISODES:
+            check_and_make(path_save_episodes)
+            env.task._recorder.save(path_save_episodes)
+            # if env.recorder is not None:
+            #     env.recorder.save(path_save_episodes)
+
+        print(
+            f"{index + 1}/{NUM_EPISODES} : success={success}, "
+            + f"terminate={terminate}, truncated={truncated}"
+        )
+
+        with open(f"success_terminate_{cfg.env.task_name}.txt", "a") as fhandle:
+            fhandle.write(
+                f"Success: {success}, Terminate: {terminate}, "
+                + f"Instruction: {instruction}, Truncated: {truncated}\n"
+            )
 
     return 0
 
